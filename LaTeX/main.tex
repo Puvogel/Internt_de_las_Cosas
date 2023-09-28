@@ -1,0 +1,64 @@
+% ------------------------------------------------------------------------------
+% Proyectos de Ingeniería y Gestión del Software
+% by Romen Adama Caetano Ramirez
+% University of Las Palmas de Gran Canaria 
+% ------------------------------------------------------------------------------
+\documentclass[11pt]{report} 
+
+\usepackage{projectreport}
+\usepackage{placeins} % Adds \Floatbarrier command to keep elements from moving beyond a certain space
+\usepackage{color} % Color texts
+\usepackage{nicematrix}
+\usepackage{hyperref}
+\usepackage{tikz}
+
+\bibliography{references.bib} % load source file from root.tex to enable \cite auto-complete
+
+\newcommand{\name}{Karl Deilmann}
+\newcommand{\course}{Computacíon en la Nube}
+\newcommand{\projecttitle}{Report}
+\newcommand{\submissiondate}{14 of Sep - 20 of Dec}
+
+
+% ------------------------------------------------------------------------------
+% Document
+% ------------------------------------------------------------------------------
+\begin{document}
+	
+	\maketitle
+	
+	% ------------------------------------------------------------------------------
+	% Top matter
+	% ------------------------------------------------------------------------------
+	
+	\tableofcontents
+	
+	
+	% comment out if not needed
+	
+	% ------------------------------------------------------------------------------
+	% Main matter
+	% Chapters are added to the document using the \include{chapterx} command
+	% ------------------------------------------------------------------------------
+	\newpage
+	\setcounter{page}{0}
+	\pagenumbering{arabic}
+	\include{ex1}
+
+	
+	% ------------------------------------------------------------------------------
+	% Reference list
+	% ------------------------------------------------------------------------------
+	\addcontentsline{toc}{chapter}{References}
+	\renewcommand\bibname{References}
+	\printbibliography
+	
+	% ------------------------------------------------------------------------------
+	% Appendices
+	% ------------------------------------------------------------------------------
+	\include{appendix}
+	% \listoffigures
+	%\listoftables
+	%\lstlistoflistings
+	
+\end{document}
