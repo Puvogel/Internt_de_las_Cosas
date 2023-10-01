@@ -27,7 +27,7 @@ char dateTime[SIZE_OF_DATE_TIME];           // Global DateTime data
 // Define const vaiables
 const char filename[] = "sensorData.txt";   // Define filename for a file to store sensor data (NOTE: in Task 3 we write timestamps instead of sensordata)
 const int externalPin = 5;                  // Define ext.  pin for interactions by the outside world
-const int limit = 5;                       // Define limit loops
+const int limitLoop = 5;                       // Define limit loops
 
 // Define flags
 const bool verboseSerial = true;            // Define verbosit of SerialMonitor output
@@ -101,6 +101,7 @@ void loop() {
 
   // Task 5: Only show bahaviour form Task 2 on ext. interrupt
   if (_extInterrupt) {
+    /*********** Give visual sign while no USB connection exists ************/
     digitalWrite(LED_BUILTIN, HIGH);    // FOR DEBUGGING
     delay(100);                         // FOR DEBUGGING
     digitalWrite(LED_BUILTIN, LOW);     // FOR DEBUGGING
@@ -112,6 +113,7 @@ void loop() {
     digitalWrite(LED_BUILTIN, HIGH);    // FOR DEBUGGING
     delay(100);                         // FOR DEBUGGING
     digitalWrite(LED_BUILTIN, LOW);     // FOR DEBUGGING
+    /************************************************************************/
     // Print ext. interrupt notice and dateTime
     SerialUSB.println("External interrupt detected...");
     printDateTime();
@@ -128,6 +130,7 @@ void loop() {
   
   /* Task 2: Use RTC to read sensor every 10 seconds. Print out date and time on each read */
   if(_rtcFlag){
+    /*********** Give visual sign while no USB connection exists ************/
     digitalWrite(LED_BUILTIN, HIGH);    // FOR DEBUGGING
     delay(200);                         // FOR DEBUGGING
     digitalWrite(LED_BUILTIN, LOW);     // FOR DEBUGGING
@@ -135,6 +138,7 @@ void loop() {
     digitalWrite(LED_BUILTIN, HIGH);    // FOR DEBUGGING
     delay(200);                         // FOR DEBUGGING
     digitalWrite(LED_BUILTIN, LOW);     // FOR DEBUGGING
+    /************************************************************************/
     // Print date and time
     printDateTime();
     strcat(dateTime, " internal\n");
@@ -148,14 +152,16 @@ void loop() {
     repetition++;
 
     // FOR DEBUGGING
-    if (repetition > limit) {
-      getFSInfo();
-      readFlash();
-      exit(0);
+    if (repetition > limitLoop) {
+      delay(5000);                  // Delay to enable USB connection to reestablish
+      getFSInfo();                  // Gather info on filesystem
+      readFlash();                  // Read flash storage and print to serial
+      filesystem.unmount();         // Unmount FS
+      exit(0);                      // Exit loop
     }
   }
 
-  if (repetition < limit) {
+  if (repetition <= limitLoop) {
     SerialUSB.println("Sleep from loop...");
     // Send Arduino to sleep (indefinetely)
     LowPower.sleep();
