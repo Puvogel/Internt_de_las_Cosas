@@ -1,4 +1,11 @@
 \chapter*{Exercise 1}
 
-\section*{RTC and Deep Sleep}
+For this assignment we provide our main program code in the file \texttt{Ejercicio\_1.ino}. Because there might be problems with re-establishing the USB connection after the sleep-wakeup cycle is ended, we provide a second code \texttt{readFlash.ino}. This code is taken from the provided examples and serves only to verify the memory has been written with the correct data
 
+\section*{RTC and Deep Sleep}.
+
+Our Code will make the Arduino setup the RTC, the Flash memory module, clean the memory and format the filesystem on boot-up. After this setup period, we subscribe to the RCT clock event interrupt and a PIN readout on PIN 5 as an external interrupt source. Finally we send the Arduino to deep-sleep.
+To show that interrupts are happening, we make the internal LED flash 2-times slowly on internal interrupts (by RTC) and 3-times fast on an external interrupt (pull-down on PIN 5).
+
+In our main loop, we wake up the $\mu$-Controller from the interrupt, check if it was internal or external and safe the timestamp with the key \textsl{internal} or \textsl{external} to flash memory. (Technically we also print the timestamp to serial as was required by task 2, but since deep-sleep breaks the USB connection, we cannot see this). 
+After \texttt{limitLoop} iterations (in this case 5 loops) we wait for 5 seconds to enable the USB host to re-establish a connection and then print out the internals of the memory chip. It will include the regular timestamps from the RTC wake-ups and, if they existed, also timestamps from external wake-ups (pull-down on PIN 5).
