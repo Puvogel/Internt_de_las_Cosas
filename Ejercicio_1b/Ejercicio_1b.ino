@@ -29,8 +29,8 @@
 //// Additional Defines ////////////////
 ////////////////////////////////////////
 
-#define LOAD_REDUCTION_FACTOR 30   // Define a factor by which the load balancer should reduce theard load
-#define LOAD_INCREASE_FACTOR 30    // Define factor by which the load balancer should increase thread load
+#define LOAD_REDUCTION_FACTOR 20   // Define a factor by which the load balancer should reduce theard load
+#define LOAD_INCREASE_FACTOR 20    // Define factor by which the load balancer should increase thread load
 #define CPU_USAGE_TARGET_PER 85                          // Define target CPU utilisation to 85%
 #define CPU_USAGE_TARGET_DEC CPU_USAGE_TARGET_PER / 100  // Define target CPU utilisation as decimal
 #define NUM_WORKER_THREADS NUM_THREADS - 2               // Worker threads are all but "top", and "loop"
