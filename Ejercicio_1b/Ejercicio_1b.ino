@@ -47,13 +47,15 @@ char thread_name[NUM_THREADS][15] = { "top", "worker_1", "worker_2", "worker_3",
 volatile uint32_t threadPeriod_ms[NUM_THREADS] = { CYCLE_MS, 200, 100, 200, 0 };
 volatile int threadLoad[NUM_THREADS] = { 0, 50, 50, 50, 0 };
 
+volatile int idleCycles = 0;
+
 ///////////////////////////////////////
 ////// New min-max load ///////////////
 ///////////////////////////////////////
 
 // Define the minimum and maximum load values for each thread (in ticks)
-const int threadMinLoad_per[NUM_THREADS] = { 0, 10, 10, 10, 0 };
-const int threadMaxLoad_per[NUM_THREADS] = { 0, 90, 90, 90, 0 };
+const int threadMinLoad_i[NUM_THREADS] = { 0, 10, 10, 10, 0 };
+const int threadMaxLoad_i[NUM_THREADS] = { 0, 300, 150, 350, 0 };
 
 ///////////////////////////////////////
 ///////////////////////////////////////
@@ -87,6 +89,10 @@ systemLoad_t sysLoad;
 void top_load_balance() {
   // Calculate the total CPU load and utilization of each thread
   float workerLoad = 0;
+  // Initialize Array to hold new iteration values for then ext cycle
+  int newWorkerLoad[NUM_THREADS];
+  // Variable to hold over/undershoot of load ticks across threads
+  int excessLoad_i = 0;
 
   // Iterate over all worker processes: 
   // Get the thread load of the last cycle
@@ -113,28 +119,40 @@ void top_load_balance() {
 
     if (workerLoad > CPU_USAGE_TARGET_PER) {
       // Reduce the load if the thread's utilization is too high
-      newLoad = (int)(threadLoad[tid] + loadAdjust * LOAD_REDUCTION_FACTOR);
+      newLoad = abs((int)(threadLoad[tid]) + loadAdjust * LOAD_REDUCTION_FACTOR);
+      newWorkerLoad[tid] = newLoad;
       SerialUSB.print(" reduce to ");
     } else if (workerLoad < CPU_USAGE_TARGET_PER) {
       // Increase the load if the thread's utilization is too low
-      newLoad = (int)(threadLoad[tid] + loadAdjust * LOAD_INCREASE_FACTOR);
+      newLoad = abs((int)(threadLoad[tid]) + loadAdjust * LOAD_INCREASE_FACTOR);
+      newWorkerLoad[tid] = newLoad;
       SerialUSB.print(" increase to ");
     } else {
-      newLoad = threadLoad[tid];  // Keep the load unchanged
+      newLoad = abs(threadLoad[tid]);  // Keep the load unchanged
+      newWorkerLoad[tid] = newLoad;
       SerialUSB.print(" unchanged with ");
     }
     SerialUSB.print(newLoad);
 
     // Ensure the new load is within the specified range
-    /*if (sysLoad.threadLoad[tid].ticksPerCycle < threadMinLoad[tid]) {
-            newLoad *= LOAD_INCREASE_FACTOR;
-            SerialUSB.print(". Normalized to: ");
-            SerialUSB.print(newLoad);
-        } else if (sysLoad.threadLoad[tid].ticksPerCycle > threadMaxLoad[tid]) {
-            newLoad *= LOAD_REDUCTION_FACTOR;
-            SerialUSB.print(". Normalized to: ");
-            SerialUSB.print(newLoad);
-        }*/
+    if (newWorkerLoad[tid] < threadMinLoad_i[tid]) {
+            excessLoad_i += threadMinLoad_i[tid] - newWorkerLoad[tid];
+            SerialUSB.print(". Thread ");
+            SerialUSB.print(tid);
+            SerialUSB.print(" below bound, increase allowed ticks.");
+            newLoad -= excessLoad_i;
+        } else if (newWorkerLoad[tid] > threadMaxLoad_i[tid]) {
+            excessLoad_i -= newWorkerLoad[tid] - threadMaxLoad_i[tid];
+            SerialUSB.print(". Thread ");
+            SerialUSB.print(tid);
+            SerialUSB.print(" above bound, decrease allowed ticks.");
+            newLoad += excessLoad_i;
+        }
+        excessLoad_i = 0;
+        ///////////////
+        // Edge Case: Last thread goes out of bounds !!!
+        // Cannot ensure bounds can be met within one cycle
+        //////////////
     SerialUSB.print("\n");
 
     // Update the load of the thread
@@ -379,4 +397,18 @@ void setup() {
 //------------------------------------------------------------------------------
 // loop() function. It is considered here as the idle thread
 //------------------------------------------------------------------------------
-void loop() {}
+void loop() {
+  idleCycles++;
+  if (idleCycles > 1000000){
+    if(sysLoad.threadLoad[NUM_THREADS -1].loadPerCycle_per <= 16){
+      SerialUSB.print("Idle Cycles since last intervention: ");
+      SerialUSB.println(idleCycles);
+      idleCycles = 0;
+      int tid = random(1,3);
+      threadLoad[tid] += 20;
+      SerialUSB.print("Increase Thead ");
+      SerialUSB.print(tid);
+      SerialUSB.println(" by 20 ticks");
+    }
+  }
+}
