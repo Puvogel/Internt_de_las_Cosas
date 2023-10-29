@@ -375,20 +375,6 @@ void setup() {
   SerialUSB.println("Hit any key + ENTER to start ...");
   while (!SerialUSB.available()) { delay(10); }
 
-  ////////////////////////////////////
-  // Calculate the random load within the specified range
-  /*int randomLoad = 0;
-  for (int worker_ID = 1; worker_ID < NUM_THREADS; worker_ID++) {
-      randomLoad = random(threadMinLoad[worker_ID], threadMaxLoad[worker_ID]);
-      threadLoad[worker_ID] = randomLoad;
-      SerialUSB.print("Thread ");
-      SerialUSB.print(worker_ID);
-      SerialUSB.print(" with starting load ");
-      SerialUSB.print(randomLoad);
-      SerialUSB.print(" initialized\n");
-  }*/
-  ////////////////////////////////////
-
   // Initialize OS and then call chSetup.
   // chBegin() never returns. Loop() is invoked directly from chBegin()
   chBegin(chSetup);
