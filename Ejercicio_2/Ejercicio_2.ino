@@ -12,7 +12,7 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
-#define IS_MASTER true    // Set Master mode for controlling device, for sensor device set to false
+#define IS_MASTER false    // Set Master mode for controlling device, for sensor device set to false
 
 
 constexpr const uint32_t serial_monitor_bauds=115200;
@@ -45,6 +45,33 @@ const byte numChars = 32;
 
   boolean serial1NewData = false;
 
+  ////////////////////
+  /// OLED Display ///
+  ////////////////////
+
+  #define SCREEN_WIDTH 128 // OLED display width, in pixels
+  #define SCREEN_HEIGHT 64 // OLED display height, in pixels
+
+  time_t lastTime_ms = 0;      // Variable to hold a time stamp in milli seconds
+
+  // Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
+  // The pins for I2C are defined by the Wire-library. 
+  // On an arduino UNO:       A4(SDA), A5(SCL)
+  // On an arduino MEGA 2560: 20(SDA), 21(SCL)
+  // On an arduino LEONARDO:   2(SDA),  3(SCL), ...
+  #define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
+  #define SCREEN_ADDRESS 0x3D ///< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
+  Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+
+
+  //////////////////////
+  /// Sensor reading ///
+  //////////////////////
+
+  uint16_t srf_range = 0;     // Global variable to hold range measurement of ultrasonic sensor
+  uint16_t srf_min = 0;       // Global variable to hold min-range measurement of ultrasonic sensor
+
 
 #endif
 
@@ -73,7 +100,30 @@ void setup() {
 
   #else
 
-    Serial.println("waiting...");   
+    Serial.println("waiting...");
+
+    ////////////////////
+    /// OLED Display ///
+    ////////////////////
+
+    // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
+    if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
+      Serial.println(F("SSD1306 allocation failed"));
+      for(;;); // Don't proceed, loop forever
+    }
+
+    // Show initial display buffer contents on the screen --
+    // the library initializes this with an Adafruit splash screen.
+    display.display();
+    delay(200); // Pause for 200 milli seconds
+
+    // Clear the buffer
+    display.clearDisplay();
+
+
+    //////////////////////
+    /// Sensor reading ///
+    //////////////////////
 
   #endif
 }
@@ -91,6 +141,30 @@ void loop() {
 
     checkSerial1();     // Checks if there is any new data to be read from the serial1
     showData();         // Shows the new data if there is any
+
+
+    ////////////////////
+    /// OLED Display ///
+    ////////////////////
+
+    
+    // Refresh OLED after 100ms
+    if (lastTime_ms < (millis() + 100) ) {
+      SerialUSB.println("Refreshing OLED");
+      displayDataToOLED(srf_range, srf_min);
+      lastTime_ms = millis();
+    }
+  
+
+
+
+
+
+
+
+    //////////////////////
+    /// Sensor reading ///
+    //////////////////////
 
   #endif
 
@@ -191,6 +265,43 @@ void loop() {
       Serial1.write(1);
       serial1NewData = false;
     }
+  }
+
+  // Take the two 16 bit int from the sensor and display them on the OLED
+  void displayDataToOLED(uint16_t range, uint16_t minRange) {
+    display.clearDisplay();
+
+    display.setTextSize(1); // Draw 2X-scale text
+    display.setTextColor(SSD1306_WHITE);
+    // Display range
+    display.setCursor(10, 0);
+    display.print(F("Distance: "));
+    display.print(range);
+    display.println(F(" cms"));
+    // Display min range (autotune)
+    display.setCursor(10, display.getCursorY());      // Offset curser towards center of the screen
+    display.print(F("Min range: "));
+    display.print(minRange);
+    display.println(F(" cms"));
+    // Show initial text
+    display.display();
+    //delay(100);   // Do not pause in subroutines
+
+    // Scroll in various directions, pausing in-between:
+    /*display.startscrollright(0x00, 0x0F);
+    delay(2000);
+    display.stopscroll();
+    delay(1000);
+    display.startscrollleft(0x00, 0x0F);
+    delay(2000);
+    display.stopscroll();
+    delay(1000);
+    display.startscrolldiagright(0x00, 0x07);
+    delay(2000);
+    display.startscrolldiagleft(0x00, 0x07);
+    delay(2000);
+    display.stopscroll();
+    delay(1000);*/
   }
 
 #endif
