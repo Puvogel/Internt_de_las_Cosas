@@ -144,7 +144,15 @@ void setup() {
   // Initialize serial monitor 
   Serial.begin(serial_monitor_bauds);
 
-  while (!Serial);
+  // Blink LED if not connected to Serial
+  int count = 0;
+  while (!Serial && count < 25){
+    digitalWrite(LED_BUILTIN, HIGH);
+    delay(50);
+    digitalWrite(LED_BUILTIN, LOW);
+    delay(50);
+    count++;
+  }
 
   // Inicialización del puerto de comunicaciones con el otro dispositivo MKR 
   Serial1.begin(serial1_bauds);
