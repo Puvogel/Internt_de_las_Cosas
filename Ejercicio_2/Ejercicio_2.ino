@@ -12,6 +12,15 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
+
+
+// Connect OLED cables to the following port
+// red    -> 3.3V/5V
+// black  -> GND
+// yelow  -> scl
+// blue   -> sda
+
+
 #define IS_MASTER false    // Set Master mode for controlling device, for sensor device set to false
 
 
@@ -52,15 +61,16 @@ const byte numChars = 32;
   #define SCREEN_WIDTH 128 // OLED display width, in pixels
   #define SCREEN_HEIGHT 64 // OLED display height, in pixels
 
-  time_t lastTime_ms = 0;      // Variable to hold a time stamp in milli seconds
+  time_t lastTimeOLED_ms = 0;           // Variable to hold a time stamp in milli seconds to time OLED refreshing
+  #define OLED_REFRESH_RATE_MS 100     // Define refreshrate of OLED in ms
 
   // Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
   // The pins for I2C are defined by the Wire-library. 
   // On an arduino UNO:       A4(SDA), A5(SCL)
   // On an arduino MEGA 2560: 20(SDA), 21(SCL)
   // On an arduino LEONARDO:   2(SDA),  3(SCL), ...
-  #define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
-  #define SCREEN_ADDRESS 0x3D ///< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
+  #define OLED_RESET     -1     // Reset pin # (or -1 if sharing Arduino reset pin)
+  #define SCREEN_ADDRESS 0x3D   // /< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
   Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 
 
@@ -69,14 +79,59 @@ const byte numChars = 32;
   /// Sensor reading ///
   //////////////////////
 
+  time_t lastTimeSendor_ms = 0;      // Variable to hold a time stamp in milli seconds to time sensor refreshing
+
+  #define SRF02_I2C_ADDRESS byte((0xE0)>>1)
+  #define SRF02_I2C_INIT_DELAY 100    // in milliseconds
+  #define SRF02_RANGING_DELAY 70      // milliseconds
+  #define SRF02_MEASURE_DELAY 500    // milliseconds
+
+  // LCD05's command related definitions        // TODO: Remove if not necessary
+  #define COMMAND_REGISTER byte(0x00)
+  #define SOFTWARE_REVISION byte(0x00)
+  #define RANGE_HIGH_BYTE byte(2)
+  #define RANGE_LOW_BYTE byte(3)
+  #define AUTOTUNE_MINIMUM_HIGH_BYTE byte(4)
+  #define AUTOTUNE_MINIMUM_LOW_BYTE byte(5)
+
+  // SRF02's command codes
+  #define REAL_RANGING_MODE_INCHES    byte(80)
+  #define REAL_RANGING_MODE_CMS       byte(81)
+  #define REAL_RANGING_MODE_USECS     byte(82)
+  #define FAKE_RANGING_MODE_INCHES    byte(86)
+  #define FAKE_RANGING_MODE_CMS       byte(87)
+  #define FAKE_RANGING_MODE_USECS     byte(88)
+  #define TRANSMIT_8CYCLE_40KHZ_BURST byte(92)
+  #define FORCE_AUTOTUNE_RESTART      byte(96)
+  #define ADDRESS_CHANGE_1ST_SEQUENCE byte(160)
+  #define ADDRESS_CHANGE_3RD_SEQUENCE byte(165)
+  #define ADDRESS_CHANGE_2ND_SEQUENCE byte(170)
+
   uint16_t srf_range = 0;     // Global variable to hold range measurement of ultrasonic sensor
   uint16_t srf_min = 0;       // Global variable to hold min-range measurement of ultrasonic sensor
+  boolean isActiveRanging = false;  // Semaphor variable to regulate ranging calls
 
+  inline void write_command(byte address,byte command)
+  { 
+    Wire.beginTransmission(address);
+    Wire.write(COMMAND_REGISTER); 
+    Wire.write(command); 
+    Wire.endTransmission();
+  }
+
+  byte read_register(byte address,byte the_register)
+  {
+    Wire.beginTransmission(address);
+    Wire.write(the_register);
+    Wire.endTransmission();
+    
+    // getting sure the SRF02 is not busy
+    Wire.requestFrom(address,byte(1));
+    while(!Wire.available()) { }
+    return Wire.read();
+  }
 
 #endif
-
-// yelow scl
-// blue sda
 
 void setup() {
 
@@ -86,7 +141,7 @@ void setup() {
   // Setup serial connection
   // SerialUSB.begin(115200);
 
-  // Inicialización del puerto para el serial monitor 
+  // Initialize serial monitor 
   Serial.begin(serial_monitor_bauds);
 
   while (!Serial);
@@ -106,6 +161,7 @@ void setup() {
     /// OLED Display ///
     ////////////////////
 
+    Serial.println("Begining OLED setup ...");
     // SSD1306_SWITCHCAPVCC = generate display voltage from 3.3V internally
     if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
       Serial.println(F("SSD1306 allocation failed"));
@@ -120,10 +176,23 @@ void setup() {
     // Clear the buffer
     display.clearDisplay();
 
+    Serial.println("Finished OLED setup ...");
 
     //////////////////////
     /// Sensor reading ///
     //////////////////////
+
+    Serial.println("Begining Sensor setup ...");
+    Serial.println("initializing Wire interface ...");
+    Wire.begin();
+    delay(SRF02_I2C_INIT_DELAY);  
+  
+    byte software_revision=read_register(SRF02_I2C_ADDRESS,SOFTWARE_REVISION);
+    Serial.print("SFR02 ultrasonic range finder in address 0x");
+    Serial.print(SRF02_I2C_ADDRESS,HEX); Serial.print("(0x");
+    Serial.print(software_revision,HEX); Serial.println(")");
+
+    Serial.println("Finished Sensor setup ...");
 
   #endif
 }
@@ -139,8 +208,8 @@ void loop() {
 
   #else
 
-    checkSerial1();     // Checks if there is any new data to be read from the serial1
-    showData();         // Shows the new data if there is any
+    //checkSerial1();     // Checks if there is any new data to be read from the serial1
+    //showData();         // Shows the new data if there is any
 
 
     ////////////////////
@@ -149,22 +218,32 @@ void loop() {
 
     
     // Refresh OLED after 100ms
-    if (lastTime_ms < (millis() + 100) ) {
-      SerialUSB.println("Refreshing OLED");
+    if (millis() - lastTimeOLED_ms > OLED_REFRESH_RATE_MS) {
       displayDataToOLED(srf_range, srf_min);
-      lastTime_ms = millis();
+      lastTimeOLED_ms = millis();
     }
-  
-
-
-
-
-
-
-
+ 
     //////////////////////
     /// Sensor reading ///
     //////////////////////
+
+    // Measure after SRF02_MEASURE_DELAY ms
+    if (millis() - lastTimeSendor_ms > SRF02_MEASURE_DELAY && !isActiveRanging) {
+      write_command(SRF02_I2C_ADDRESS,REAL_RANGING_MODE_CMS);
+      // Delay to make accurate reading -> see manual
+      delay(SRF02_RANGING_DELAY);
+
+      byte high_byte_range=read_register(SRF02_I2C_ADDRESS,RANGE_HIGH_BYTE);
+      byte low_byte_range=read_register(SRF02_I2C_ADDRESS,RANGE_LOW_BYTE);
+      byte high_min=read_register(SRF02_I2C_ADDRESS,AUTOTUNE_MINIMUM_HIGH_BYTE);
+      byte low_min=read_register(SRF02_I2C_ADDRESS,AUTOTUNE_MINIMUM_LOW_BYTE);
+
+      srf_range = int16_t((high_byte_range<<8) | low_byte_range);
+      srf_min = int16_t((high_min<<8) | low_min);
+
+      // Reset timer variable
+      lastTimeSendor_ms = millis();
+    }
 
   #endif
 
@@ -231,8 +310,7 @@ void loop() {
 
 #else
 
-  void checkSerial1(){
-
+void checkSerial1() {
   while (Serial1.available() > 0 && serial1NewData == false){
     rc = Serial1.read();
 
