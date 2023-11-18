@@ -12,6 +12,29 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 
+///////////////////////////////
+/// tc_lib special settings ///
+///////////////////////////////
+
+#define ARDUINO_MKR_PORT
+
+#include "tc_lib.h"
+
+using namespace tc_lib::arduino_mkr;
+
+#define CALLBACK_PERIOD 50000000 // hundreths of usecs. (1e-8 secs.)
+#define DELAY_TIME 1000 // msecs.
+
+// action_tc4 declaration
+action_tc4_declaration();
+
+///////////////////////////////
+///////////////////////////////
+///////////////////////////////
+
+
+
+#define IS_MASTER false    // Set Master mode for controlling device, for sensor device set to false
 
 
 // Connect OLED cables to the following port
@@ -21,7 +44,37 @@
 // blue   -> sda
 
 
-#define IS_MASTER false    // Set Master mode for controlling device, for sensor device set to false
+
+// Protocol
+/*
+- help                                              -> Show available commands
+- us <srf02> {one-shot | on <period_ms> | off}      -> Start a single measurement, a continous measurment for <period_ms> duration, stop periodic measurments. <srf02> refers to the sensors address
+- us <srf02> unit {inc | cm | ms}                   -> Set the unit for the measurments < inc | cm | ms >
+- us <srf02> delay <ms>                             -> Set delay between cosecutive measurments           
+- us <srf02> status                                 -> Return configuation of sensor (address, state, units, delay)
+- us                                                -> Return all available sensors (addresses)
+*/
+
+// Define codes for 1st byte
+#define CODE_US 0b0000001
+#define CODE_UNIT 0b00000010
+#define CODE_STATUS 0b00000011
+#define CODE_RESP 0b11000000
+
+// Define codes for 3rd byte
+#define CODE_ONE_SHOT 0b0100001
+#define CODE_ON_PERIOD_MS 0b0100010
+#define CODE_OFF 0b01000011
+#define CODE_UNIT_INC 0b01010000
+#define CODE_UNIT_CMS 0b01010001
+#define CODE_UNIT_MS 0b01010010
+
+// Defeine code for ACK/NACK
+#define CODE_ACK 0b10000000
+#define CODE_NACK 0b10000001
+
+
+#define NUM_CHARS 32
 
 
 constexpr const uint32_t serial_monitor_bauds=115200;
@@ -29,30 +82,30 @@ constexpr const uint32_t serial1_bauds=9600;
 
 constexpr const uint32_t pseudo_period_ms=1000;
 
-const byte numChars = 32;
+uint32_t last_ms;
+uint32_t new_ms;
+
+bool serial1NewData = false;
+
+char serial1ReceivedChars[NUM_CHARS];   // an array to store the received command
 
 
 // Code for Master
 #if IS_MASTER
 
-  char serialReceivedChars[numChars];   // an array to store the received command
+  uint8_t header;             // indicate which commade is to be sent
+  uint8_t payload[4] = {};
+  bool temp = false;
 
-  uint8_t opbyte=0;
+  uint8_t acknowledge;
 
-  boolean serialNewData = false;
+  uint8_t result;
+  char *output;
 
 // Code for Slave
 #else
 
   uint8_t led_state=LOW;
-
-  char serial1ReceivedChars[numChars];   // an array to store the received command
-
-  static byte ndx = 0;
-  char endMarker = '\n';
-  char rc;
-
-  boolean serial1NewData = false;
 
   ////////////////////
   /// OLED Display ///
@@ -131,6 +184,36 @@ const byte numChars = 32;
     return Wire.read();
   }
 
+
+  /////////////////////
+  /// Communication ///
+  /////////////////////
+
+  #define DATA_ARR_LEN 3
+
+  static byte ndx = 0;
+  char endMarker = '\n';
+  char rc;
+
+  uint8_t counter = 0;
+  uint8_t header = 0;
+
+  bool rec = false;
+
+  uint8_t data[DATA_ARR_LEN] = {};
+
+  // Enum to tell unit apart in srf
+  enum SensorUnit{
+    INC,
+    CMS,
+    MS
+  };
+
+  uint16_t sensorAddress = SRF02_I2C_ADDRESS;
+  uint16_t sensorPeriod_ms = 0;
+  uint16_t sensorDelay_ms = SRF02_MEASURE_DELAY;
+  uint8_t sensorUnit = CMS;
+
 #endif
 
 void setup() {
@@ -138,8 +221,8 @@ void setup() {
   // Setup indicator LED
   pinMode(LED_BUILTIN, OUTPUT);
 
-  // Setup serial connection
-  // SerialUSB.begin(115200);
+  // Initialize serial port for communication between microcontrollers
+  Serial1.begin(serial1_bauds);
 
   // Initialize serial monitor 
   Serial.begin(serial_monitor_bauds);
@@ -207,92 +290,94 @@ void setup() {
 
 void loop() {
 
-  #if IS_MASTER
+#if IS_MASTER
 
-    inputData();          // Checks if there is any new data to be read from the serial monitor
-    showData();           // Shows the new data if there is any
-    checkData();          // checks for any syntax error or 'help' command
-    sendDataToSlave();    // Send the data to the Slave
+  inputData();          // Checks if there is any new data to be read from the serial monitor
+  showData();           // Shows the new data if there is any
+  checkData();          // checks for any syntax error or 'help' command
+  sendDataToSlave();    // Send the data to the Slave
 
-  #else
+#else
 
-    //checkSerial1();     // Checks if there is any new data to be read from the serial1
-    //showData();         // Shows the new data if there is any
+  checkSerial1();     // Checks if there is any new data to be read from the serial1
+  //showData();         // Shows the new data if there is any
 
 
-    ////////////////////
-    /// OLED Display ///
-    ////////////////////
+  ////////////////////
+  /// OLED Display ///
+  ////////////////////
 
-    
-    // Refresh OLED after 100ms
-    if (millis() - lastTimeOLED_ms > OLED_REFRESH_RATE_MS) {
-      displayDataToOLED(srf_range, srf_min);
-      lastTimeOLED_ms = millis();
-    }
- 
-    //////////////////////
-    /// Sensor reading ///
-    //////////////////////
+  
+  // Refresh OLED after 100ms
+  if (millis() - lastTimeOLED_ms > OLED_REFRESH_RATE_MS) {
+    displayDataToOLED(srf_range, srf_min);
+    lastTimeOLED_ms = millis();
+  }
 
-    // Measure after SRF02_MEASURE_DELAY ms
-    if (millis() - lastTimeSendor_ms > SRF02_MEASURE_DELAY && !isActiveRanging) {
-      write_command(SRF02_I2C_ADDRESS,REAL_RANGING_MODE_CMS);
-      // Delay to make accurate reading -> see manual
-      delay(SRF02_RANGING_DELAY);
+  //////////////////////
+  /// Sensor reading ///
+  //////////////////////
 
-      byte high_byte_range=read_register(SRF02_I2C_ADDRESS,RANGE_HIGH_BYTE);
-      byte low_byte_range=read_register(SRF02_I2C_ADDRESS,RANGE_LOW_BYTE);
-      byte high_min=read_register(SRF02_I2C_ADDRESS,AUTOTUNE_MINIMUM_HIGH_BYTE);
-      byte low_min=read_register(SRF02_I2C_ADDRESS,AUTOTUNE_MINIMUM_LOW_BYTE);
+  // Measure after SRF02_MEASURE_DELAY ms
+  if (millis() - lastTimeSendor_ms > SRF02_MEASURE_DELAY && !isActiveRanging) {
+    write_command(SRF02_I2C_ADDRESS,REAL_RANGING_MODE_CMS);
+    // Delay to make accurate reading -> see manual
+    delay(SRF02_RANGING_DELAY);
 
-      srf_range = int16_t((high_byte_range<<8) | low_byte_range);
-      srf_min = int16_t((high_min<<8) | low_min);
+    byte high_byte_range=read_register(SRF02_I2C_ADDRESS,RANGE_HIGH_BYTE);
+    byte low_byte_range=read_register(SRF02_I2C_ADDRESS,RANGE_LOW_BYTE);
+    byte high_min=read_register(SRF02_I2C_ADDRESS,AUTOTUNE_MINIMUM_HIGH_BYTE);
+    byte low_min=read_register(SRF02_I2C_ADDRESS,AUTOTUNE_MINIMUM_LOW_BYTE);
 
-      // Reset timer variable
-      lastTimeSendor_ms = millis();
-    }
+    srf_range = int16_t((high_byte_range<<8) | low_byte_range);
+    srf_min = int16_t((high_min<<8) | low_min);
 
-  #endif
+    // Reset timer variable
+    lastTimeSendor_ms = millis();
+  }
+
+#endif
 
 }
 
 
 #if IS_MASTER
 
-  void inputData() {
-    static byte ndx = 0;
-    char endMarker = '\n';
-    char rc;
-    
-    while (Serial.available() > 0 && serialNewData == false) {
-        rc = Serial.read();
+void checkSerial() {
+  static byte ndx = 0;
+  char endMarker = '\n';
+  char rc;
+  
+  while (Serial.available() > 0 && serialNewData == false) {
+      rc = Serial.read();
 
-        if (rc != endMarker) {
-            serialReceivedChars[ndx] = rc;
-            ndx++;
-            if (ndx >= numChars) {
-                ndx = numChars - 1;
-            }
-        }
-        else {
-            serialReceivedChars[ndx] = '\0'; // terminate the string
-            ndx = 0;
-            serialNewData = true;
-
-        }
-    }
+      if (rc != endMarker) {
+          serialReceivedChars[ndx] = rc;
+          ndx++;
+          if (ndx >= NUM_CHARS) {
+              ndx = NUM_CHARS - 1;
+          }
+      }
+      else {
+          serialReceivedChars[ndx] = '\0'; // terminate the string
+          ndx = 0;
+          serialNewData = true;
+      }
   }
+}
 
-  void showData() {
-    if (serialNewData == true) {
-      Serial.println(serialReceivedChars);
-      Serial.println();
-    }
+void showData() {
+  if (serialNewData == true) {
+    Serial.println(serialReceivedChars);
+    Serial.println();
   }
+}
 
-  void checkData(){
-    if (strcmp(serialReceivedChars, "help") == 0 && (serialNewData == true)){
+void checkData(){
+
+  if (serialNewData == true){
+
+    if (strcmp(serialReceivedChars, "help") == 0) {
       Serial.println("us <srf02> {one-shot | on <period_ms> | off}");
       Serial.println("us <srf02> unit {inc | cm | ms}");
       Serial.println("us <srf02> delay <ms>");
@@ -300,58 +385,366 @@ void loop() {
       Serial.println("us");
       Serial.println();
       serialNewData = false;
+      return;
     }
-  }
 
-  void sendDataToSlave() {
+    char substring0[2] = {
+      serialReceivedChars[0],
+      serialReceivedChars[1]
+      };
 
-    if (serialNewData == true) {
-      Serial.println("sending...");
+    if (strcmp(substring0, "us") == 0){
 
-      
-      Serial1.write(serialReceivedChars);
-      
+      if (serialReceivedChars[2] == '\0') {
+        header = 9;
+        payload[0] = 0;
+        payload[1] = 0;
+        payload[2] = 0;
+        payload[3] = 0;
 
-      serialNewData = false;
+        printHeaderAndData();
+        return;
+      }
+
+      else{
+        // take address and aconvert it to uint8
+        char strHexToUint8[3] = {
+          serialReceivedChars[5],
+          serialReceivedChars[6],
+          '\0'
+        };
+
+        result = strtol(strHexToUint8, &output, 16);
+
+        // if there is any error we break out of the function
+        if (result == 0){ 
+          Serial.println("Error");
+          serialNewData = false;
+          Serial.println("Use 'help' to view available commands");
+          return;
+        }
+
+        // we store the address
+        payload[0] = result;
+        
+        char substring1[6] = {
+          serialReceivedChars[8],
+          serialReceivedChars[9],
+          serialReceivedChars[10],
+          serialReceivedChars[11],
+          serialReceivedChars[12],
+          '\0'
+          };
+
+        if (strcmp(substring1, "one-s\0") == 0){
+          
+          header = 1;
+          payload[1] = 0;
+          payload[2] = 0;
+          payload[3] = 0;
+
+          printHeaderAndData();
+          return;
+        }
+
+
+
+        char substring2[4] = {
+          serialReceivedChars[8],
+          serialReceivedChars[9],
+          serialReceivedChars[10],
+          '\0'
+          };
+
+        if (strcmp(substring2, "on \0") == 0){
+          
+          header = 2;
+
+          uint8_t i=11;
+          char substring3[32];
+          while (serialReceivedChars[i] != '\0'){
+            substring3[i-11] = serialReceivedChars[i];
+            i++;
+          }
+
+          int int_result = strtol(substring3, &output, 10);
+
+          Serial.print("Stored number: ");
+          Serial.println(int_result);
+
+          size_t arraySize = sizeof(int);
+
+          uint8_t uint8Array[arraySize];
+
+          intToUint8Array(int_result, uint8Array, arraySize);
+
+          payload[1] = uint8Array[0];
+          payload[2] = uint8Array[1];
+          payload[3] = uint8Array[2];
+
+          printHeaderAndData();
+          return;          
+        }
+
+        if (strcmp(substring2, "off\0") == 0){
+          
+          header = 3;
+          payload[1] = 0;
+          payload[2] = 0;
+          payload[3] = 0;
+
+          printHeaderAndData();
+          return;
+        }
+
+        char substring4[8] = {
+          serialReceivedChars[8],
+          serialReceivedChars[9],
+          serialReceivedChars[10],
+          serialReceivedChars[11],
+          serialReceivedChars[12],
+          serialReceivedChars[13],
+          serialReceivedChars[14],
+          '\0'
+          };
+
+        if (strcmp(substring4, "unit in\0") == 0){
+          
+          header = 4;
+          payload[1] = 0;
+          payload[2] = 0;
+          payload[3] = 0;
+
+          printHeaderAndData();
+          return;
+        }
+
+        if (strcmp(substring4, "unit cm\0") == 0){
+          
+          header = 5;
+          payload[1] = 0;
+          payload[2] = 0;
+          payload[3] = 0;
+
+          printHeaderAndData();
+          return;
+        }
+
+        if (strcmp(substring4, "unit ms\0") == 0){
+          
+          header = 6;
+          payload[1] = 0;
+          payload[2] = 0;
+          payload[3] = 0;
+
+          printHeaderAndData();
+          return;
+        }    
+
+        char substring5[7] = {
+          serialReceivedChars[8],
+          serialReceivedChars[9],
+          serialReceivedChars[10],
+          serialReceivedChars[11],
+          serialReceivedChars[12],
+          serialReceivedChars[13],
+          '\0'
+          };
+
+        if (strcmp(substring5, "delay ") == 0){
+          
+          header = 7;
+          
+          uint8_t i=14;
+          char substring3[32];
+          while (serialReceivedChars[i] != '\0'){
+            substring3[i-14] = serialReceivedChars[i];
+            i++;
+          }
+
+          int int_result = strtol(substring3, &output, 10);
+
+          Serial.print("Stored number: ");
+          Serial.println(int_result);
+
+          size_t arraySize = sizeof(int);
+
+          uint8_t uint8Array[arraySize];
+
+          intToUint8Array(int_result, uint8Array, arraySize);
+
+          payload[1] = uint8Array[0];
+          payload[2] = uint8Array[1];
+          payload[3] = uint8Array[2];
+
+          printHeaderAndData();
+          return;
+        }      
+
+
+        if (strcmp(substring5, "status\0") == 0){
+          
+          header = 8;
+          payload[1] = 0;
+          payload[2] = 0;
+          payload[3] = 0;
+
+          printHeaderAndData();
+          return;
+        }                     
+
+      }
     }
+    Serial.println("Use 'help' to view available commands");
+    serialNewData = false;
   }
+}
+
+void sendingData() {
+
+  if (serialNewData == true) {
+    Serial.println("sending..."); 
+
+    //DESCOMENTAR
+    //////////////////////////////////////////////////////////////////
+    // call second function to write option code on Serial1
+    while (serial1WriteHeader() == false){}
+    
+    // call second function to write data on Serial1
+    while (serial1WriteData() == false){}
+    //////////////////////////////////////////////////////////////////
+    
+    serialNewData = false;
+    serialReceivedChars[NUM_CHARS] = {};
+  }
+}
+
+bool serial1WriteHeader(){
+
+  Serial.print("Sending header--> ");
+
+  Serial1.write(header);
+
+  acknowledge = 0;
+  last_ms=millis();
+  new_ms=millis();
+  // Waiting for the Option acknowledge
+  while(new_ms-last_ms<1000 && acknowledge != 255) 
+    { 
+      if(Serial1.available()>0)
+      {
+        acknowledge=Serial1.read();
+        Serial.print("<-- ack received: "); Serial.println(static_cast<int>(acknowledge));
+        return true;
+      }
+      new_ms=millis();
+    }
+  return false;
+}
+
+bool serial1WriteData(){
+  
+  Serial.print("Sending payload--> ");
+
+  Serial1.write(payload[0]);
+  Serial1.write(payload[1]);
+  Serial1.write(payload[2]);
+  Serial1.write(payload[3]);
+
+  acknowledge = 0;
+  last_ms=millis();
+  new_ms=millis();
+  // Waiting for the Option acknowledge
+  while(new_ms-last_ms<1000 && acknowledge != 255) 
+    { 
+      if(Serial1.available()>0)
+      {
+        uint8_t acknowledge=Serial1.read();
+        Serial.print("<-- ack received: "); Serial.println(static_cast<int>(acknowledge)); 
+        return true;
+      }
+      new_ms=millis();
+    }
+  return false;
+}
+
+void printHeaderAndData(){
+  Serial.println(header);
+  Serial.println(payload[0]);
+  Serial.println(payload[1]);
+  Serial.println(payload[2]);
+  Serial.println(payload[3]);
+}
+
+void intToUint8Array(int value, uint8_t* array, size_t size) {
+    for (size_t i = 0; i < size; ++i) {
+        array[i] = static_cast<uint8_t>((value >> (i * 8)) & 0xFF);
+    }
+}
 
 #else
 
-void checkSerial1() {
-  while (Serial1.available() > 0 && serial1NewData == false){
-    rc = Serial1.read();
+////////////////
+/// Protocol ///
+////////////////
 
-        if (rc != endMarker) {
-            serial1ReceivedChars[ndx] = rc;
-            ndx++;
-            if (ndx >= numChars) {
-                ndx = numChars - 1;
-            }
+  void checkSerial1(){
+
+    if(Serial1.available()>0){
+        
+      header = Serial1.read();
+      rec = true;
+
+      // ToDo: Detect which command was queried
+      /*
+      /
+      /
+      /
+      /
+      /
+      */
+      Serial.println(header);
+
+    }
+
+    if (rec == true){
+      Serial.println("Sending acknowledge--> ");
+      Serial1.write(0xFF);
+
+      last_ms=millis();
+      new_ms=millis();
+      while (new_ms-last_ms<1000){
+        
+        if (Serial1.available()>0) {
+          data[counter] = Serial1.read();
+          counter++;
         }
-        else {
-            serial1ReceivedChars[ndx] = '\0'; // terminate the string
-            ndx = 0;
-            serial1NewData = true;
+        new_ms=millis();
+      }
 
-        }
+      counter = 0;
+
+      rec = false;
+
+      Serial.println(data[0]);
+      Serial.println(data[1]);
+      Serial.println(data[2]);
+      Serial.println(data[3]);
+
+      Serial1.write(0xFF);
     }
   }
 
-  void showData() {
-    if (serial1NewData == true) {
-      Serial.println(serial1ReceivedChars);
-      Serial.println();
-      serial1NewData = false;
-    }
+  // Function to send data to the master device using Serial1
+  void sendDataToMaster(uint8_t* data, size_t dataSize) {
+   /*
+   /  ToDo: Send data to master
+   */    
   }
 
-  void acknowledge(){
-    if (serial1NewData == true) {
-      Serial1.write(1);
-      serial1NewData = false;
-    }
-  }
+////////////////////
+/// OLED Display ///
+////////////////////
 
   // Take the two 16 bit int from the sensor and display them on the OLED
   void displayDataToOLED(uint16_t range, uint16_t minRange) {
@@ -371,23 +764,59 @@ void checkSerial1() {
     display.println(F(" cms"));
     // Show initial text
     display.display();
-    //delay(100);   // Do not pause in subroutines
+  }
 
-    // Scroll in various directions, pausing in-between:
-    /*display.startscrollright(0x00, 0x0F);
-    delay(2000);
-    display.stopscroll();
-    delay(1000);
-    display.startscrollleft(0x00, 0x0F);
-    delay(2000);
-    display.stopscroll();
-    delay(1000);
-    display.startscrolldiagright(0x00, 0x07);
-    delay(2000);
-    display.startscrolldiagleft(0x00, 0x07);
-    delay(2000);
-    display.stopscroll();
-    delay(1000);*/
+  //////////////
+  /// Sensor ///
+  //////////////
+
+  void com_srfOneShot(){
+    write_command(sensorAddress,REAL_RANGING_MODE_CMS);
+      // Delay to make accurate reading -> see manual
+      delay(SRF02_RANGING_DELAY);
+
+      byte high_byte_range=read_register(SRF02_I2C_ADDRESS,RANGE_HIGH_BYTE);
+      byte low_byte_range=read_register(SRF02_I2C_ADDRESS,RANGE_LOW_BYTE);
+      byte high_min=read_register(SRF02_I2C_ADDRESS,AUTOTUNE_MINIMUM_HIGH_BYTE);
+      byte low_min=read_register(SRF02_I2C_ADDRESS,AUTOTUNE_MINIMUM_LOW_BYTE);
+
+      srf_range = int16_t((high_byte_range<<8) | low_byte_range);
+      srf_min = int16_t((high_min<<8) | low_min);
+  }
+
+  void com_srfOnPeriod_ms(uint16_t period){
+    // Find solution to call sensor reading repeatedly --> timer ??? 
+    //action_tc4.start(uint32_t period, callback_t the_callback, void *the_user_ctx)
+  }
+
+  // Take all available inforamtion suh as sensor address, configured delay and period as well as selected unit format and send information to master
+  void com_retrieveStatus(){
+    int arr_size = 7;
+    uint8_t rspData[arr_size];
+    rspData[0] = sensorAddress & 0xFF;          // Lower 8 bits of sensorAddress
+    rspData[1] = (sensorAddress >> 8) & 0xFF;   // Upper 8 bits of sensorAddress
+
+    rspData[2] = sensorDelay_ms & 0xFF;         // Lower 8 bits of sensorDelay_ms
+    rspData[3] = (sensorDelay_ms >> 8) & 0xFF;  // Upper 8 bits of sensorDelay_ms
+
+    rspData[4] = sensorPeriod_ms & 0xFF;        // Lower 8 bits of sensorPeriod_ms
+    rspData[5] = (sensorPeriod_ms >> 8) & 0xFF; // Upper 8 bits of sensorPeriod_ms
+
+    rspData[6] = sensorUnit;                    // Already uint8_t
+
+    sendDataToMaster(rspData, arr_size);
+  }
+
+  // Set delay between distinct sensor readings
+  void com_setDelay(uint16_t address, uint16_t delay){
+    sensorAddress = address;
+    sensorDelay_ms = delay;
+  }
+
+  // Set unit for sensor reading
+  void com_setUnit(uint16_t address, uint8_t unit){
+    sensorAddress = address;
+    sensorUnit = unit;
   }
 
 #endif

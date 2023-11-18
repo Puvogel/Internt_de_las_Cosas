@@ -1,12 +1,3 @@
-/* ----------------------------------------------------------------------
- *  Ejemplo echo.ino 
- *    Este ejemplo muestra como utilizar el puerto serie uart (Serial1) 
- *    para comunicarse con otro dispositivo.
- *    
- *  Asignatura (GII-IC)
- * ---------------------------------------------------------------------- 
- */
-
 constexpr const uint32_t serial_monitor_bauds=115200;
 constexpr const uint32_t serial1_bauds=9600;
 
@@ -20,6 +11,16 @@ char serial1ReceivedChars[numChars];   // an array to store the received command
 static byte ndx = 0;
 char endMarker = '\n';
 char rc;
+
+uint8_t counter = 0;
+uint8_t header = 0;
+
+bool rec = false;
+
+uint8_t data[3] = {};
+
+uint32_t last_ms;
+uint32_t new_ms;
 
 boolean serial1NewData = false;
 
@@ -37,66 +38,47 @@ void setup()
 
 void loop()
 {
-  
-  checkSerial1();     // Checks if there is any new data to be read from the serial1
-  showData();         // Shows the new data if there is any
-  
-  //acknowledge();
-  /*
-  uint32_t last_ms=millis();
-  while(millis()-last_ms<pseudo_period_ms) 
-  { 
-    if(Serial1.available()>0) 
-    {
-      uint8_t data=Serial1.read();
-      Serial.print("<-- received: "); Serial.println(static_cast<int>(data)); 
-      Serial.print("--> sending back: "); Serial.println(static_cast<int>(data)); 
-      Serial1.write(data);
-      break;
-    }
-  }
 
-  if(millis()-last_ms<pseudo_period_ms) delay(pseudo_period_ms-(millis()-last_ms));
-  else Serial.println("<-- received: TIMEOUT!!"); 
+  checkSerial1();
 
-  Serial.println("*******************************************************"); 
-
-  digitalWrite(LED_BUILTIN,led_state); led_state=(led_state+1)&0x01;
-  */
 }
 
 void checkSerial1(){
 
-  while (Serial1.available() > 0 && serial1NewData == false){
-  rc = Serial1.read();
+  if(Serial1.available()>0){
+      
+    header = Serial1.read();
+    rec = true;
+    Serial.println(header);
 
-      if (rc != endMarker) {
-          serial1ReceivedChars[ndx] = rc;
-          ndx++;
-          if (ndx >= numChars) {
-              ndx = numChars - 1;
-          }
+  }
+
+  if (rec == true){
+    Serial.println("Sending acknowledge--> ");
+    Serial1.write(0xFF);
+
+    last_ms=millis();
+    new_ms=millis();
+    while (new_ms-last_ms<1000){
+      
+      if (Serial1.available()>0) {
+        data[counter] = Serial1.read();
+        counter++;
       }
-      else {
-          serial1ReceivedChars[ndx] = '\0'; // terminate the string
-          ndx = 0;
-          serial1NewData = true;
+      new_ms=millis();
+    }
 
-      }
+    counter = 0;
+
+    rec = false;
+
+    Serial.println(data[0]);
+    Serial.println(data[1]);
+    Serial.println(data[2]);
+    Serial.println(data[3]);
+
+    Serial1.write(0xFF);
   }
 }
 
-void showData() {
-  if (serial1NewData == true) {
-    Serial.println(serial1ReceivedChars);
-    Serial.println();
-    serial1NewData = false;
-  }
-}
 
-void acknowledge(){
-  if (serial1NewData == true) {
-    Serial1.write(1);
-    serial1NewData = false;
-  }
-}
