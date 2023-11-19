@@ -16,17 +16,27 @@
 /// tc_lib special settings ///
 ///////////////////////////////
 
-#define ARDUINO_MKR_PORT
-
-#include "tc_lib.h"
-
-using namespace tc_lib::arduino_mkr;
-
-#define CALLBACK_PERIOD 50000000 // hundreths of usecs. (1e-8 secs.)
-#define DELAY_TIME 1000 // msecs.
-
-// action_tc4 declaration
-action_tc4_declaration();
+//#define ARDUINO_MKR_PORT
+//
+//#include "tc_lib.h"
+//
+//using namespace tc_lib::arduino_mkr;
+//
+//#define CALLBACK_PERIOD 50000000 // hundreths of usecs. (1e-8 secs.)
+//#define DELAY_TIME 1000 // msecs.
+//
+//// action_tc4 declaration
+//action_tc4_declaration();
+//
+//struct ctx
+//{
+//  ctx() { counter=0; }
+//
+//  volatile uint32_t counter;
+//  timer_t start = millis();
+//};
+//
+//ctx action_ctx;
 
 ///////////////////////////////
 ///////////////////////////////
@@ -80,10 +90,12 @@ action_tc4_declaration();
 constexpr const uint32_t serial_monitor_bauds=115200;
 constexpr const uint32_t serial1_bauds=9600;
 
-constexpr const uint32_t pseudo_period_ms=1000;
+//constexpr const uint32_t pseudo_period_ms=1000;
 
 uint32_t last_ms;
 uint32_t new_ms;
+
+
 
 bool serial1NewData = false;
 
@@ -104,8 +116,6 @@ char serial1ReceivedChars[NUM_CHARS];   // an array to store the received comman
 
 // Code for Slave
 #else
-
-  uint8_t led_state=LOW;
 
   ////////////////////
   /// OLED Display ///
@@ -162,7 +172,11 @@ char serial1ReceivedChars[NUM_CHARS];   // an array to store the received comman
 
   uint16_t srf_range = 0;     // Global variable to hold range measurement of ultrasonic sensor
   uint16_t srf_min = 0;       // Global variable to hold min-range measurement of ultrasonic sensor
-  boolean isActiveRanging = false;  // Semaphor variable to regulate ranging calls
+
+  // Flag to show that periodic sensor reading is active
+  bool _is_periodic_ranging = false;
+  time_t sensorFirstTime = 0;
+  time_t sensorLastTime = millis();
 
   inline void write_command(byte address,byte command)
   { 
@@ -206,11 +220,11 @@ char serial1ReceivedChars[NUM_CHARS];   // an array to store the received comman
   enum SensorUnit{
     INC,
     CMS,
-    MS
+    USEC
   };
 
   uint16_t sensorAddress = SRF02_I2C_ADDRESS;
-  uint16_t sensorPeriod_ms = 0;
+  uint16_t sensorPeriod_ms = 10000;                     // Default value for debugging
   uint16_t sensorDelay_ms = SRF02_MEASURE_DELAY;
   uint8_t sensorUnit = CMS;
 
@@ -245,6 +259,10 @@ void setup() {
     Serial.println("Use 'help' to view available commands");
 
   #else
+
+    // DEBUGGING
+    _is_periodic_ranging = true;
+    SerialUSB.println("DEBUGGING: Strating period sensor reading once...");
 
     Serial.println("waiting...");
 
@@ -299,9 +317,12 @@ void loop() {
 
 #else
 
+  ////////////////
+  /// Protocol ///
+  ////////////////
+
   checkSerial1();     // Checks if there is any new data to be read from the serial1
   //showData();         // Shows the new data if there is any
-
 
   ////////////////////
   /// OLED Display ///
@@ -318,23 +339,39 @@ void loop() {
   /// Sensor reading ///
   //////////////////////
 
-  // Measure after SRF02_MEASURE_DELAY ms
-  if (millis() - lastTimeSendor_ms > SRF02_MEASURE_DELAY && !isActiveRanging) {
-    write_command(SRF02_I2C_ADDRESS,REAL_RANGING_MODE_CMS);
-    // Delay to make accurate reading -> see manual
-    delay(SRF02_RANGING_DELAY);
 
-    byte high_byte_range=read_register(SRF02_I2C_ADDRESS,RANGE_HIGH_BYTE);
-    byte low_byte_range=read_register(SRF02_I2C_ADDRESS,RANGE_LOW_BYTE);
-    byte high_min=read_register(SRF02_I2C_ADDRESS,AUTOTUNE_MINIMUM_HIGH_BYTE);
-    byte low_min=read_register(SRF02_I2C_ADDRESS,AUTOTUNE_MINIMUM_LOW_BYTE);
-
-    srf_range = int16_t((high_byte_range<<8) | low_byte_range);
-    srf_min = int16_t((high_min<<8) | low_min);
-
-    // Reset timer variable
-    lastTimeSendor_ms = millis();
+  // If a period for sensor readout is demanded, enter here
+  if(_is_periodic_ranging) {
+    time_t cur_time = millis();
+    // Read sensor if delay has passed
+    if (cur_time - sensorLastTime > sensorDelay_ms) {
+      sensorLastTime = millis();    // Set last time variable to curent time
+      com_srfOneShot();             // Execute sensor reading (will send data to master)
+      Serial.println("Executed reading");
+    }
+    // Determine if sensor ranging time has passed
+    if (cur_time - sensorFirstTime > sensorPeriod_ms) {
+      _is_periodic_ranging = false; // stop periodic sensor reading
+    }
   }
+
+  //// Measure after SRF02_MEASURE_DELAY ms
+  //if (millis() - lastTimeSendor_ms > SRF02_MEASURE_DELAY && !isActiveRanging) {
+  //  write_command(SRF02_I2C_ADDRESS,REAL_RANGING_MODE_CMS);
+  //  // Delay to make accurate reading -> see manual
+  //  delay(SRF02_RANGING_DELAY);
+  //
+  //  byte high_byte_range=read_register(SRF02_I2C_ADDRESS,RANGE_HIGH_BYTE);
+  //  byte low_byte_range=read_register(SRF02_I2C_ADDRESS,RANGE_LOW_BYTE);
+  //  byte high_min=read_register(SRF02_I2C_ADDRESS,AUTOTUNE_MINIMUM_HIGH_BYTE);
+  //  byte low_min=read_register(SRF02_I2C_ADDRESS,AUTOTUNE_MINIMUM_LOW_BYTE);
+  //
+  //  srf_range = int16_t((high_byte_range<<8) | low_byte_range);
+  //  srf_min = int16_t((high_min<<8) | low_min);
+  //
+  //  // Reset timer variable
+  //  lastTimeSendor_ms = millis();
+  //}
 
 #endif
 
@@ -684,6 +721,8 @@ void intToUint8Array(int value, uint8_t* array, size_t size) {
 
 #else
 
+// IS SLAVE MODE
+
 ////////////////
 /// Protocol ///
 ////////////////
@@ -699,8 +738,7 @@ void intToUint8Array(int value, uint8_t* array, size_t size) {
       /*
       /
       /
-      /
-      /
+      / 
       /
       */
       Serial.println(header);
@@ -762,6 +800,25 @@ void intToUint8Array(int value, uint8_t* array, size_t size) {
     display.print(F("Min range: "));
     display.print(minRange);
     display.println(F(" cms"));
+    // Display remaining time to measure
+    // Or display request status
+    if (_is_periodic_ranging) {
+      display.setCursor(10, display.getCursorY());
+      display.println("Measuring for: ");
+      display.setCursor(10, display.getCursorY());
+      display.print(sensorPeriod_ms);
+      display.println("ms");
+      display.setCursor(10, display.getCursorY());
+      display.println("Remaining time: ");
+      display.setCursor(10, display.getCursorY());
+      display.print(sensorPeriod_ms - sensorFirstTime - millis());
+      display.println("ms");
+    }else {
+      display.setCursor(10, display.getCursorY());
+      display.println("No request! ");
+      display.setCursor(10, display.getCursorY());
+      display.println("Waiting... ");
+    }
     // Show initial text
     display.display();
   }
@@ -770,7 +827,9 @@ void intToUint8Array(int value, uint8_t* array, size_t size) {
   /// Sensor ///
   //////////////
 
+  // Read sensor once, LED_BUILTIN is lit during ranging process
   void com_srfOneShot(){
+    digitalWrite(LED_BUILTIN, HIGH);
     write_command(sensorAddress,REAL_RANGING_MODE_CMS);
       // Delay to make accurate reading -> see manual
       delay(SRF02_RANGING_DELAY);
@@ -782,12 +841,32 @@ void intToUint8Array(int value, uint8_t* array, size_t size) {
 
       srf_range = int16_t((high_byte_range<<8) | low_byte_range);
       srf_min = int16_t((high_min<<8) | low_min);
+      digitalWrite(LED_BUILTIN, LOW);
   }
 
-  void com_srfOnPeriod_ms(uint16_t period){
-    // Find solution to call sensor reading repeatedly --> timer ??? 
-    //action_tc4.start(uint32_t period, callback_t the_callback, void *the_user_ctx)
+  void com_srfOnPeriod_ms(uint16_t period_ms) {
+    _is_periodic_ranging = true;
+    sensorPeriod_ms = period_ms;
+    sensorFirstTime = millis();         // Set starting time for periodic sensor reading
+    sensorLastTime = sensorFirstTime;   // Reset variable
   }
+
+  // USING tc_lib
+  //void sensor_callback(void* a_ctx) {
+  //  ctx* the_ctx=reinterpret_cast<ctx*>(a_ctx);
+  //
+  //  //Call sensor reading
+  //  com_srfOneShot();
+  //
+  //  // Increase counter for timer
+  //  the_ctx->counter++;
+  //  // If period is reached, stop timer callback
+  //  if (millis() - the_ctx->start > sensorPeriod_ms) {
+  //    // DEBUGGING
+  //    SerialUSB.println("Stopping timer now");
+  //    action_tc4.stop();
+  //  }
+  //}
 
   // Take all available inforamtion suh as sensor address, configured delay and period as well as selected unit format and send information to master
   void com_retrieveStatus(){
@@ -814,9 +893,25 @@ void intToUint8Array(int value, uint8_t* array, size_t size) {
   }
 
   // Set unit for sensor reading
+  // Will halt if unit can not be determined;
   void com_setUnit(uint16_t address, uint8_t unit){
     sensorAddress = address;
-    sensorUnit = unit;
+    switch (unit) {
+      case CMS:
+        sensorUnit = REAL_RANGING_MODE_CMS;
+      case INC:
+        sensorUnit = REAL_RANGING_MODE_INCHES;
+      case USEC:
+        sensorUnit = REAL_RANGING_MODE_USECS;
+      default:
+        SerialUSB.println("Error: could not determine measuring unit for sensor. Halting...");
+        while(1){
+          digitalWrite(LED_BUILTIN, LOW);
+          delay(100);
+          digitalWrite(LED_BUILTIN, HIGH);
+          delay(100);
+        }
+    }
   }
 
 #endif
