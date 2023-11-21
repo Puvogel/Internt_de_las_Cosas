@@ -98,18 +98,20 @@
 
   // Enum to tell unit apart in srf
   enum SensorUnit{
-    INC,
     CMS,
+    INC,
     USEC
   };
 
-  uint16_t sensorAddress = SRF02_I2C_ADDRESS;
+  uint8_t sensorAddress = SRF02_I2C_ADDRESS;
   uint16_t sensorPeriod_ms = 10000;                     // Default value for debugging
   uint16_t sensorDelay_ms = SRF02_MEASURE_DELAY;
   uint8_t sensorUnit = CMS;
 
 void slaveSetup(){
   // DEBUGGING
+  srf_range = 357;    // Mockup values since we cannto use sensor
+  srf_min = 73;       // Mockup values since we cannto use sensor
   /*_is_periodic_ranging = true;
   SerialUSB.println("DEBUGGING: Strating period sensor reading once...");*/
 
@@ -159,7 +161,6 @@ void slaveLoop(){
   ////////////////
 
   checkSerial1();     // Checks if there is any new data to be read from the serial1
-  //showData();         // Shows the new data if there is any
 
   ////////////////////
   /// OLED Display ///
@@ -183,34 +184,14 @@ void slaveLoop(){
     time_t cur_time = millis();
     // Read sensor if delay has passed
     if (cur_time - sensorLastTime > sensorDelay_ms) {
-      Serial.println("Reached  P1.2 ...");
       sensorLastTime = millis();    // Set last time variable to curent time
       com_srfOneShot();             // Execute sensor reading (will send data to master)
-      Serial.println("Executed reading");
     }
     // Determine if sensor ranging time has passed
     if (cur_time - sensorFirstTime > sensorPeriod_ms) {
       _is_periodic_ranging = false; // stop periodic sensor reading
     }
   }
-
-  //// Measure after SRF02_MEASURE_DELAY ms
-  //if (millis() - lastTimeSendor_ms > SRF02_MEASURE_DELAY && !isActiveRanging) {
-  //  write_command(SRF02_I2C_ADDRESS,REAL_RANGING_MODE_CMS);
-  //  // Delay to make accurate reading -> see manual
-  //  delay(SRF02_RANGING_DELAY);
-  //
-  //  byte high_byte_range=read_register(SRF02_I2C_ADDRESS,RANGE_HIGH_BYTE);
-  //  byte low_byte_range=read_register(SRF02_I2C_ADDRESS,RANGE_LOW_BYTE);
-  //  byte high_min=read_register(SRF02_I2C_ADDRESS,AUTOTUNE_MINIMUM_HIGH_BYTE);
-  //  byte low_min=read_register(SRF02_I2C_ADDRESS,AUTOTUNE_MINIMUM_LOW_BYTE);
-  //
-  //  srf_range = int16_t((high_byte_range<<8) | low_byte_range);
-  //  srf_min = int16_t((high_min<<8) | low_min);
-  //
-  //  // Reset timer variable
-  //  lastTimeSendor_ms = millis();
-  //}
 }
 
 
@@ -221,57 +202,117 @@ void slaveLoop(){
 /// Protocol ///
 ////////////////
 
-  void checkSerial1(){
+void checkSerial1(){
 
-    if(Serial1.available()>0){
-        
-      header = Serial1.read();
-      rec = true;
+  
 
-      // ToDo: Detect which command was queried
-      /*
-      /
-      /
-      / 
-      /
-      */
-      Serial.println(header);
+  
+  if(Serial1.available()>0){
+      
+    header = Serial1.read();
+    rec = true;
+    Serial.print("header: ");
+    Serial.println(header);
 
-    }
-
-    if (rec == true){
-      Serial.println("Sending acknowledge--> ");
-      Serial1.write(0xFF);
-
-      last_ms=millis();
-      new_ms=millis();
-      while (new_ms-last_ms<1000){
-        
-        if (Serial1.available()>0) {
-          data[counter] = Serial1.read();
-          counter++;
-        }
-        new_ms=millis();
-      }
-
-      counter = 0;
-
-      rec = false;
-
-      Serial.println(data[0]);
-      Serial.println(data[1]);
-      Serial.println(data[2]);
-      Serial.println(data[3]);
-
-      Serial1.write(0xFF);
-    }
   }
+
+  if (rec == true){
+    // Ack the header
+    //Serial.println("Sending acknowledge--> ");
+    //Serial1.write(CODE_ACK);
+    //Serial1.flush();
+    
+  
+    
+    last_ms=millis();
+    new_ms=millis();
+    while (new_ms-last_ms<1000){
+      
+      if (Serial1.available()>0) {
+        data[counter] = Serial1.read();
+        counter++;
+      }
+      new_ms=millis();
+    }
+
+    counter = 0;
+
+    rec = false;
+
+    Serial.print("address: ");
+    Serial.println(data[0]);
+    Serial.print("rest of data: ");
+    Serial.print(data[1]);
+    Serial.print(", ");
+    Serial.println(data[2]);
+    
+    // Ack payload
+    //Serial.println("Sending acknowledge--> ");
+    //Serial1.write(CODE_ACK);
+    //Serial1.flush();
+
+    // Execute Comand
+    if (header == CODE_ONE_SHOT){
+      Serial.println("Reading Sensor and sending result to master");
+      //com_srfOneShot();     // Commented out because of lack of cables to connect sensor
+
+      uint8_t rspData[] = {0, 255, 0, 22};          // because of lack of cables to connect sensor
+      sendDataToMaster(rspData, sizeof(rspData));   // because of lack of cables to connect sensor
+    }else if (header == CODE_ON_PERIOD_MS){
+      Serial.println("Start periodic reading of Sensor and sending result to master");
+      // Put together delay variable
+      uint16_t period = (data[1] << 8) | data[2];
+      Serial.print("Period for sensor: ");
+      Serial.println(period);
+      // com_srfOnPeriod_ms(period);    // Commented out because of lack of cables to connect sensor
+    }else if (header == CODE_OFF){
+      //Turn off periodic sensor measuring
+      Serial.println("Stopping sensor reading...");
+      _is_periodic_ranging = false;
+    }else if (header == CODE_STATUS){
+      Serial.println("Sending Status to master...");
+      com_retrieveStatus();
+    }else if (header == CODE_UNIT){
+      //Setting the unit for Senesor at address
+      Serial.println("Received request to change unit for sensor. Changing...");
+      com_setUnit(data[0], data[1]);
+    }else if (header == CODE_DELAY){
+      // Change delay/interval for sensor reading
+      Serial.println("Received request to change delay for sensor. Changing...");
+      uint16_t delay = (data[1] << 8) | data[2];
+      Serial.print("Delay for sensor: ");
+      Serial.println(delay);
+      com_setDelay(data[0], delay);
+    }else if (header == CODE_US){
+      // Send all available sensor addresses to master
+      Serial.println("Sending sensor addresses to master...");
+      uint8_t rspData[] = {sensorAddress, 0};
+      sendDataToMaster(rspData, sizeof(rspData));
+    }else{
+      // No known code was received, sending NACK
+      Serial.println("No known code was received, sending NACK");
+      Serial.print("Header Value: ");
+      Serial.println(header);
+      Serial1.write(CODE_NACK);
+    }
+   }
+}
 
   // Function to send data to the master device using Serial1
   void sendDataToMaster(uint8_t* data, size_t dataSize) {
-   /*
-   /  ToDo: Send data to master
-   */    
+    Serial.print("Sending data array: ");
+    for(int i= 0;i<dataSize;i++){
+      Serial.print(data[i]);
+      Serial.print(", ");
+    }
+    Serial.println(" End of data.");
+    while(!Serial1.availableForWrite()){
+      // Do nothing
+      Serial.println("waiting to write");
+      delay(100);
+    }
+    Serial1.write(data, dataSize);
+    Serial1.flush();   
   }
 
 ////////////////////
@@ -284,19 +325,28 @@ void slaveLoop(){
 
     display.setTextSize(1); // Draw 1X-scale text
     display.setTextColor(SSD1306_WHITE);
+    // Determine unit to display
+    char* unit;
+    if(sensorUnit == CMS){
+      unit = " cms";
+    }else if(sensorUnit = INC){
+      unit = " inc";
+    }else if (sensorUnit == USEC){
+      unit = " ms";
+    }
     // Display range
     display.setCursor(10, 0);
     display.print(F("Distance: "));
     display.print(range);
-    display.println(F(" cms"));
+    display.println(F(unit));
     // Display min range (autotune)
     display.setCursor(10, display.getCursorY());      // Offset curser towards center of the screen
     display.print(F("Min range: "));
     display.print(minRange);
-    display.println(F(" cms"));
+    display.println(F(unit));
     // Display remaining time to measure
     // Or display request status
-    if (_is_periodic_ranging) {
+    if (_is_periodic_ranging) {      
       display.setCursor(10, display.getCursorY());
       display.println("Measuring for: ");
       display.setCursor(10, display.getCursorY());
@@ -322,6 +372,7 @@ void slaveLoop(){
   //////////////
 
   // Read sensor once, LED_BUILTIN is lit during ranging process
+  // Send data to master
   void com_srfOneShot(){
     digitalWrite(LED_BUILTIN, HIGH);
     write_command(sensorAddress,REAL_RANGING_MODE_CMS);
@@ -336,6 +387,14 @@ void slaveLoop(){
       srf_range = int16_t((high_byte_range<<8) | low_byte_range);
       srf_min = int16_t((high_min<<8) | low_min);
       digitalWrite(LED_BUILTIN, LOW);
+
+      uint8_t rspData[4];
+      rspData[0] = srf_range & 0xFF;          // Lower 8 bits of srf_range
+      rspData[1] = (srf_range >> 8) & 0xFF;   // Upper 8 bits of srf_range
+
+      rspData[2] = srf_min & 0xFF;            // Lower 8 bits of srf_min
+      rspData[3] = (srf_min >> 8) & 0xFF;     // Upper 8 bits of srf_min
+      sendDataToMaster(rspData, sizeof(rspData));
   }
 
   void com_srfOnPeriod_ms(uint16_t period_ms) {
@@ -381,14 +440,14 @@ void slaveLoop(){
   }
 
   // Set delay between distinct sensor readings
-  void com_setDelay(uint16_t address, uint16_t delay){
+  void com_setDelay(uint8_t address, uint16_t delay){
     sensorAddress = address;
     sensorDelay_ms = delay;
   }
 
   // Set unit for sensor reading
   // Will halt if unit can not be determined;
-  void com_setUnit(uint16_t address, uint8_t unit){
+  void com_setUnit(uint8_t address, uint8_t unit){
     sensorAddress = address;
     switch (unit) {
       case CMS:

@@ -36,6 +36,7 @@
 #define CODE_UNIT 0b00000010
 #define CODE_STATUS 0b00000011
 #define CODE_RESP 0b11000000
+#define CODE_DELAY 0b00000100
 
 // Define codes for 3rd byte
 #define CODE_ONE_SHOT 0b0100001
