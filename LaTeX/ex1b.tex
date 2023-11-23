@@ -1,0 +1,16 @@
+\chapter*{Exercise 1b}
+
+\section*{Thread load-balancing}
+The code we present to this assignment is based on the 3rd example code for RTOS/ChibiOS. 
+When uploaded to the Arduino $\mu$-Controller, the startup procedure is the same as in the example code. To enable dynamic load balancing, we added a call of \texttt{top\_load\_balance()} in the \texttt{static THD\_FUNCTION(top, arg)} function.
+We implemented ou logic in \texttt{top\_load\_balance()}.
+
+We read the thread-load of the last cycle and measure how close we are to the goal of 85\% CPU utilisation. We use se relative distance between \textsl{current load} to \textsl{target load} and compute a dynamic adjustment value. This value is added (or subtracted) to the value stored in \texttt{threadLoad[tid]}, where \texttt{tid} the thread to adjust (this structure is provided by the base code), and thus will enable to run said thread longer (or shorter) on the next cycle.
+With this technique we approach the optimal CPU utilization of 85\%  and reach it after a few cycles. 
+
+
+
+
+\section*{Bonus Task: Handle random spikes in thread load}
+
+For the bonus task, we just added a simple logi in the idle thread (\texttt{loop()}) to periodically disrupt the balance by changing the value in \texttt{threadLoad[tid]} and thus changing the load behaviour of one thread. Our load-balancing logic takes care on the next cycle to adjust the values (across all threads) and restore the balance to the target load.

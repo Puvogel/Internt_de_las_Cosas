@@ -1,0 +1,28 @@
+\section{I$^2$C and Serial communication}
+
+The goal for this Assignment was to establish a serial connection between two \textsl{Arduino MKR 1310} $\mu$-controllers and send commands from one to another using a custom communication protocol. The commands should then make the second \textsl{Arduino} take a distance measurement with a ultrasonic sensor and return the data to the first one.
+Furthermore we have an OLED screen to display data from the sensor reading.
+The protocol should have the following options:
+\begin{lstlisting}
+- help                                              -> Show available commands
+- us <srf02> {one-shot | on <period_ms> | off}      -> Start a single measurement, a continous measurment 
+							for <period_ms> duration, stop periodic measurments. 
+							<srf02> refers to the sensors address
+- us <srf02> unit {inc | cm | ms}                   -> Set the unit for the measurments < inc | cm | ms >
+- us <srf02> delay <ms>                             -> Set delay between cosecutive measurments           
+- us <srf02> status                                 -> Return configuation of sensor (address, state, units, delay)
+- us                                                -> Return all available sensors (addresses)
+\end{lstlisting}
+
+\subsection*{Slave}
+To communicate with the sensor and the display, we use the \texttt{wire} library which in turn uses I$^2$C to communicate via a bus wire with all connected devices (here: sensor and display). 
+Both devices are given a unique address to not conflict while using the communication bus.
+We refresh the displays content every \texttt{100ms} to make it responsive to ongoing measurements or incoming commands.
+The display show the last measurement results (\texttt{distance} and \texttt{minDistance}) as well as the unit used for measuring and whether there is an ongoing measuring and for how ong it will keep measuring.
+The itself sensor is only activated on receiving the command from the other \textsl{Arduino}.
+To implement the the periodic reading of the sensor, we use an expression to measure the time elapsed since the last reading and if the specified delay has been reached, we perform the next reading.
+The data from each reading is automatically send to the master after each read.
+
+\subsection*{Master}
+The master receives commands from the Serial interface command line of the \textsl{Arduino IDE}. It parses the string to recognise the command issued and  sends a header for the corresponding command followed by a payload with further information such as \texttt{address}, or \texttt{period\_ms}.
+It then waits for a response from the slave.
