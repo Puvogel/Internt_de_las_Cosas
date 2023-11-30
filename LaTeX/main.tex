@@ -11,13 +11,27 @@
 \usepackage{nicematrix}
 \usepackage{hyperref}
 \usepackage{tikz}
+\usepackage{listings}
 
 \bibliography{references.bib} % load source file from root.tex to enable \cite auto-complete
 
 \newcommand{\name}{Karl Deilmann\\ Dani Quintero}
 \newcommand{\course}{Internet de las Cosas}
-\newcommand{\projecttitle}{Report 1b}
+\newcommand{\projecttitle}{Report 2}
 \newcommand{\submissiondate}{21 of Sep - 29 of Dec}
+
+\lstset{
+	language=c++,
+	basicstyle=\ttfamily\tiny,
+	keywordstyle=\color{blue},
+	commentstyle=\color{green!50!black},
+	stringstyle=\color{red},
+	numbers=left,   % Add line numbers
+	frame=single,   % Add a box around the code
+	frameround=tttt, % Make the corners of the box round
+	backgroundcolor=\color{gray!10}, % Set background color (adjust as needed)
+	showstringspaces=false % Disable symbols for whitespaces in strings
+}
 
 
 % ------------------------------------------------------------------------------
@@ -43,7 +57,7 @@
 	\newpage
 	\setcounter{page}{0}
 	\pagenumbering{arabic}
-	\include{ex1b}
+	\include{ex2}
 
 	
 	% ------------------------------------------------------------------------------
